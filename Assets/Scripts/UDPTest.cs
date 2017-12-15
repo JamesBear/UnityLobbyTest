@@ -20,11 +20,13 @@ public class UDPTest : MonoBehaviour {
     int lastMessageIndex2 = -1;
     Thread thread;
     UdpClient listener;
+    string guidStr;
 
     // Use this for initialization
     void Start() {
         messageStates = new bool[MAX_MESSAGES];
         messages = new string[MAX_MESSAGES];
+        guidStr = System.Guid.NewGuid().ToString();
 
         for (int i = 0; i < MAX_MESSAGES; i++)
             messageStates[i] = false;
@@ -59,13 +61,16 @@ public class UDPTest : MonoBehaviour {
     {
         IPAddress ip = IPAddress.Parse("127.0.0.1");
         IPEndPoint endpoint = new IPEndPoint(ip, 10003);
-        string text_to_send = "呵呵";
-        byte[] send_buffer = Encoding.UTF8.GetBytes(text_to_send);
+        //string text_to_send = "呵呵";
+        //byte[] send_buffer = Encoding.UTF8.GetBytes(text_to_send);
+        byte[] send_buffer = new byte[1000];
+        LobbyMessage lobbyMessage = new LobbyMessage { appIdentifier = 1234, roomIdentifier = 0, messageType = 1, guid = guidStr };
+        int length = lobbyMessage.ToByteArray(send_buffer);
 
         Socket sending_socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram,
         ProtocolType.Udp);
 
-        sending_socket.SendTo(send_buffer, send_buffer.Length, SocketFlags.None, endpoint);
+        sending_socket.SendTo(send_buffer, length, SocketFlags.None, endpoint);
     }
 
     void OnReceive(System.IAsyncResult result)
@@ -89,8 +94,9 @@ public class UDPTest : MonoBehaviour {
             {
                 receive_byte_array = listener.Receive(ref groupEP);
                 ThreadSafeLog(string.Format("Received a broadcast from {0}", groupEP.ToString()));
-                received_data = Encoding.UTF8.GetString(receive_byte_array, 0, receive_byte_array.Length);
-                ThreadSafeLog(string.Format("data follows \n{0}\n\n", received_data));
+                //received_data = Encoding.UTF8.GetString(receive_byte_array, 0, receive_byte_array.Length);
+                LobbyMessage lobbyMessage = new LobbyMessage(receive_byte_array);
+                ThreadSafeLog(string.Format("data follows \n{0}\n\n", lobbyMessage.ToString()));
             }
         }
         catch (System.Exception e)

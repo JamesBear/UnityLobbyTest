@@ -64,7 +64,7 @@ public class UDPTest : MonoBehaviour {
         //string text_to_send = "呵呵";
         //byte[] send_buffer = Encoding.UTF8.GetBytes(text_to_send);
         byte[] send_buffer = new byte[1000];
-        LobbyMessage lobbyMessage = new LobbyMessage { appIdentifier = 1234, roomIdentifier = 0, messageType = 1, guid = guidStr };
+        LobbyMessage lobbyMessage = new LobbyMessage { appIdentifier = 1234, senderGuid = "", messageType = 1, maxPlayerCount = 8, currentPlayerCount = 1 };
         int length = lobbyMessage.ToByteArray(send_buffer);
 
         Socket sending_socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram,

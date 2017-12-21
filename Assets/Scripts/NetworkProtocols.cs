@@ -2,8 +2,16 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+public enum NetworkMessageType
+{
+    None = 0,
+    LobbyMessage,
+
+}
+
 public abstract class NetworkProtocol
 {
+
     public bool isValid
     {
         get { return _isValid; }
@@ -11,9 +19,24 @@ public abstract class NetworkProtocol
     protected bool _isValid;
 
     public int appIdentifier;
-    public int roomIdentifier;
     public byte messageType;
+    public string senderGuid;
+    public int myPort;
 
+    public static bool TryParseBasicInfo(byte[] udpMessage, out int _appIndentifier, out int _messageType)
+    {
+
+        _appIndentifier = 0;
+        _messageType = 0;
+        if (udpMessage.Length < 5)
+            return false;
+
+        int index = 0;
+        index = PullItem(udpMessage, ref _appIndentifier, index);
+        index = PullItem(udpMessage, ref _messageType, index);
+
+        return true;
+    }
 
     public NetworkProtocol()
     {
@@ -30,34 +53,42 @@ public abstract class NetworkProtocol
     {
         int startIndex = 0;
 
-        if (udpMessage.Length < 9)
+        if (udpMessage.Length < 12)
         {
             _isValid = false;
             return startIndex;
         }
 
         startIndex = PullItem(udpMessage, ref appIdentifier, startIndex);
-        startIndex = PullItem(udpMessage, ref roomIdentifier, startIndex);
         startIndex = PullItem(udpMessage, ref messageType, startIndex);
+        startIndex = PullItem(udpMessage, ref senderGuid, startIndex);
+        startIndex = PullItem(udpMessage, ref myPort, startIndex);
 
         return startIndex;
     }
 
-    protected int PullItem(byte[] buffer, ref int value, int startIndex)
+    protected static int PullItem(byte[] buffer, ref int value, int startIndex)
     {
         value = System.BitConverter.ToInt32(buffer, startIndex);
         startIndex += sizeof(int);
         return startIndex;
     }
 
-    protected int PullItem(byte[] buffer, ref byte value, int startIndex)
+    protected static int PullItem(byte[] buffer, ref byte value, int startIndex)
     {
         value = buffer[startIndex];
         startIndex += 1;
         return startIndex;
     }
 
-    protected int PullItem(byte[] buffer, ref string value, int startIndex)
+    protected static int PullItem(byte[] buffer, ref bool value, int startIndex)
+    {
+        value = buffer[startIndex] == 0 ? false : true;
+        startIndex += 1;
+        return startIndex;
+    }
+
+    protected static int PullItem(byte[] buffer, ref string value, int startIndex)
     {
         int stringBytes = 0;
         startIndex = PullItem(buffer, ref stringBytes, startIndex);
@@ -67,20 +98,26 @@ public abstract class NetworkProtocol
         return startIndex;
     }
 
-    protected int PushItem(byte[] buffer, int value, int startIndex)
+    protected static int PushItem(byte[] buffer, int value, int startIndex)
     {
         var bytes = System.BitConverter.GetBytes(value);
         System.Array.Copy(bytes, 0, buffer, startIndex, bytes.Length);
         return startIndex + bytes.Length;
     }
 
-    protected int PushItem(byte[] buffer, byte value, int startIndex)
+    protected static int PushItem(byte[] buffer, byte value, int startIndex)
     {
         buffer[startIndex] = value;
         return startIndex + 1;
     }
 
-    protected int PushItem(byte[] buffer, string value, int startIndex)
+    protected static int PushItem(byte[] buffer, bool value, int startIndex)
+    {
+        buffer[startIndex] = value?(byte)1:(byte)0;
+        return startIndex + 1;
+    }
+
+    protected static int PushItem(byte[] buffer, string value, int startIndex)
     {
         var bytes = System.Text.Encoding.UTF8.GetBytes(value);
 
@@ -94,8 +131,9 @@ public abstract class NetworkProtocol
     {
         int index = 0;
         index = PushItem(buffer, appIdentifier, index);
-        index = PushItem(buffer, roomIdentifier, index);
         index = PushItem(buffer, messageType, index);
+        index = PushItem(buffer, senderGuid, index);
+        index = PushItem(buffer, myPort, index);
 
 
         return index;
@@ -103,7 +141,7 @@ public abstract class NetworkProtocol
 
     public override string ToString()
     {
-        string str = string.Format("appIdentifier: {0}, roomIdentifier: {1}, messageType: {2}", appIdentifier, roomIdentifier, messageType);
+        string str = string.Format("appIdentifier: {0}, senderID: {1}, messageType: {2}", appIdentifier, senderGuid, messageType);
 
         
 
@@ -113,7 +151,11 @@ public abstract class NetworkProtocol
 
 public class LobbyMessage : NetworkProtocol
 {
-    public string guid;
+    public string masterGuid;
+    public int maxPlayerCount;
+    public int currentPlayerCount;
+    public bool iWantToJoin;
+    public int joinStatus; // 0: broadcast, 1: successfully joined, 2: failed to join
 
     public LobbyMessage()
         : base()
@@ -133,7 +175,12 @@ public class LobbyMessage : NetworkProtocol
         if (!_isValid)
             return index;
 
-        index = PullItem(udpMessage, ref guid, index);
+        //index = PullItem(udpMessage, ref guid, index);
+        index = PullItem(udpMessage, ref masterGuid, index);
+        index = PullItem(udpMessage, ref maxPlayerCount, index);
+        index = PullItem(udpMessage, ref currentPlayerCount, index);
+        index = PullItem(udpMessage, ref iWantToJoin, index);
+        index = PullItem(udpMessage, ref joinStatus, index);
 
         return index;
     }
@@ -141,7 +188,12 @@ public class LobbyMessage : NetworkProtocol
     public override int ToByteArray(byte[] buffer)
     {
         int index = base.ToByteArray(buffer);
-        index = PushItem(buffer, guid, index);
+        //index = PushItem(buffer, guid, index);
+        index = PushItem(buffer, masterGuid, index);
+        index = PushItem(buffer, maxPlayerCount, index);
+        index = PushItem(buffer, currentPlayerCount, index);
+        index = PushItem(buffer, iWantToJoin, index);
+        index = PushItem(buffer, joinStatus, index);
 
         return index;
     }
@@ -150,7 +202,7 @@ public class LobbyMessage : NetworkProtocol
     {
         string str = base.ToString();
 
-        str += string.Format(", guid: {0}", guid);
+        str += string.Format(", room players: {0}/{1}, joined = {2}", currentPlayerCount, maxPlayerCount, joinStatus);
 
         return str;
     }

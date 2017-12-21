@@ -16,7 +16,7 @@ public class NetworkManager : MonoBehaviour
         public string guid;
         public bool isMaster;
         public IPEndPoint endPoint;
-
+        public bool started;
         
     }
 
@@ -50,11 +50,13 @@ public class NetworkManager : MonoBehaviour
     public const int MAX_PLAYER_COUNT = 8;
 
     public bool useDebugPort;
+    public bool autoJoin;
     public bool btnTestSend;
     public bool btnTestStartListening;
     public bool btnTestCreateLobby;
     public bool btnTestJoinRandomLobby;
     public bool btnRequestRoomList;
+    public bool btnTestStartGame;
 
     private bool stopListening = false;
     bool[] messageStates;
@@ -133,6 +135,13 @@ public class NetworkManager : MonoBehaviour
             RequestRoomList();
         }
 
+        if (btnTestStartGame)
+        {
+            btnTestStartGame = false;
+            StartGame();
+            NotifyStartGame();
+        }
+
         for (int i = lastMessageIndex + 1; messageStates[i] == true; i++, lastMessageIndex++)
         {
             Debug.Log(messages[i]);
@@ -185,6 +194,7 @@ public class NetworkManager : MonoBehaviour
         lobby = new Lobby();
         lobby.players.Add(new LobbyPlayer { guid = guidStr, endPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 10003), isMaster = true, name = "" });
         lobby.isMaster = true;
+        lobby.master = lobby.players[0];
         lobbyState = LobbyState.InLobby;
         BroadcastLobby();
     }
@@ -359,6 +369,21 @@ public class NetworkManager : MonoBehaviour
             if (lobby != null && lobby.isMaster && lobbyState == LobbyState.InLobby)
                 BroadcastLobby();
         }
+        else if (lobbyMessage.startGame && lobbyState == LobbyState.InLobby)
+        {
+            if (lobbyMessage.senderGuid == lobby.master.guid)
+            {
+                StartGame();
+                NotifyStartGame();
+            }
+        }
+        else if (lobbyMessage.startGame && lobbyState == LobbyState.InGame && lobby.isMaster)
+        {
+            var targetPlayer = lobby.players.Find(item => item.guid == lobbyMessage.senderGuid);
+            if (targetPlayer != null)
+                targetPlayer.started = true;
+            CheckReady();
+        }
         else if (lobby != null && lobby.isMaster) // I am the lobby master
         {
             if (lobbyMessage.masterGuid != guidStr)
@@ -397,6 +422,10 @@ public class NetworkManager : MonoBehaviour
                     };
                     lobbyList.Add(newLobby);
                     ThreadSafeLog("Found lobby on " + newLobby.master.endPoint.ToString());
+                    if (autoJoin)
+                    {
+                        RequestJoinLobby(newLobby);
+                    }
                 }
                 else if (targetLobby.master.guid == lobbyMessage.senderGuid)
                 {
@@ -411,6 +440,42 @@ public class NetworkManager : MonoBehaviour
                 }
             }
         }
+    }
+
+    void NotifyStartGame()
+    {
+        LobbyMessage message = new LobbyMessage();
+        FillBasicInfo(message);
+        message.masterGuid = lobby.master.guid;
+        message.startGame = true;
+        if (lobby.isMaster)
+            BroadcastMessage(message);
+        else
+            SendUdpMessage(lobby.master.endPoint, message);
+    }
+
+    void CheckReady()
+    {
+        bool allStarted = true;
+        foreach (var player in lobby.players)
+        {
+            if (player.isMaster == false && player.started == false)
+            {
+                allStarted = false;
+                break;
+            }
+        }
+
+        if (allStarted)
+        {
+            ThreadSafeLog("all players ready to go");
+        }
+    }
+
+    void StartGame()
+    {
+        ThreadSafeLog("Game started.");
+        lobbyState = LobbyState.InGame;
     }
 
     void ThreadSafeLog(object message)

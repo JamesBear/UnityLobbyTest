@@ -168,6 +168,7 @@ public class LobbyMessage : NetworkProtocol
     public bool iWantToJoin;
     public int joinStatus; // 0: broadcast, 1: successfully joined, 2: failed to join
     public bool requestRoomList;
+    public bool startGame;
 
     public LobbyMessage()
         : base()
@@ -194,6 +195,7 @@ public class LobbyMessage : NetworkProtocol
         index = PullItem(udpMessage, ref iWantToJoin, index);
         index = PullItem(udpMessage, ref joinStatus, index);
         index = PullItem(udpMessage, ref requestRoomList, index);
+        index = PullItem(udpMessage, ref startGame, index);
 
         return index;
     }
@@ -208,6 +210,7 @@ public class LobbyMessage : NetworkProtocol
         index = PushItem(buffer, iWantToJoin, index);
         index = PushItem(buffer, joinStatus, index);
         index = PushItem(buffer, requestRoomList, index);
+        index = PushItem(buffer, startGame, index);
 
         return index;
     }

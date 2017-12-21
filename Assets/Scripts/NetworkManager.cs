@@ -15,9 +15,16 @@ public class NetworkManager : MonoBehaviour
         public string name;
         public string guid;
         public bool isMaster;
-        public IPEndPoint ip;
+        public IPEndPoint endPoint;
 
         
+    }
+
+    enum LobbyState
+    {
+        NoLobby,
+        InLobby,
+        InGame,
     }
 
     class Lobby
@@ -42,10 +49,12 @@ public class NetworkManager : MonoBehaviour
     public const int DEBUG_PORT = 13242; // for debugging on single PC
     public const int MAX_PLAYER_COUNT = 8;
 
+    public bool useDebugPort;
     public bool btnTestSend;
     public bool btnTestStartListening;
     public bool btnTestCreateLobby;
-    public bool useDebugPort;
+    public bool btnTestJoinRandomLobby;
+    public bool btnRequestRoomList;
 
     private bool stopListening = false;
     bool[] messageStates;
@@ -57,6 +66,7 @@ public class NetworkManager : MonoBehaviour
     string guidStr;
 
     Lobby lobby;
+    LobbyState lobbyState;
     LobbyPlayer master;
     List<Lobby> lobbyList = new List<Lobby>();
 
@@ -71,9 +81,11 @@ public class NetworkManager : MonoBehaviour
         messageStates = new bool[MAX_MESSAGES];
         messages = new string[MAX_MESSAGES];
         guidStr = System.Guid.NewGuid().ToString();
+        lobbyState = LobbyState.NoLobby;
 
         for (int i = 0; i < MAX_MESSAGES; i++)
             messageStates[i] = false;
+        
     }
 
     int GetPort()
@@ -96,14 +108,29 @@ public class NetworkManager : MonoBehaviour
         if (btnTestStartListening)
         {
             btnTestStartListening = false;
-            thread = new Thread(() => TestStartListening());
-            thread.Start();
+            if (listener == null)
+            {
+                thread = new Thread(() => StartListening());
+                thread.Start();
+            }
         }
 
         if (btnTestCreateLobby)
         {
             btnTestCreateLobby = false;
             CreateLobby();
+        }
+
+        if (btnTestJoinRandomLobby)
+        {
+            btnTestJoinRandomLobby = false;
+            JoinRandomLobby();
+        }
+
+        if (btnRequestRoomList)
+        {
+            btnRequestRoomList = false;
+            RequestRoomList();
         }
 
         for (int i = lastMessageIndex + 1; messageStates[i] == true; i++, lastMessageIndex++)
@@ -117,11 +144,48 @@ public class NetworkManager : MonoBehaviour
 
     }
 
+    void RequestRoomList()
+    {
+        LobbyMessage message = new LobbyMessage();
+        FillBasicInfo(message);
+        message.requestRoomList = true;
+        BroadcastMessage(message);
+    }
+
+    void JoinRandomLobby()
+    {
+        if (lobbyList.Count == 0)
+        {
+            Debug.Log("no lobby");
+            return;
+        }
+        var index = UnityEngine.Random.Range(0, lobbyList.Count);
+        var targetLobby = lobbyList[index];
+        RequestJoinLobby(targetLobby);
+    }
+
+    void FillBasicInfo(NetworkProtocol message)
+    {
+        message.appIdentifier = APP_IDENTIFIER;
+        message.myPort = GetPort();
+        message.senderGuid = guidStr;
+    }
+
+    void RequestJoinLobby(Lobby targetLobby)
+    {
+        LobbyMessage message = new LobbyMessage();
+        FillBasicInfo(message);
+        message.iWantToJoin = true;
+        message.masterGuid = targetLobby.master.guid;
+        SendUdpMessage(targetLobby.master.endPoint, message);
+    }
+
     void CreateLobby()
     {
-        Lobby lobby = new Lobby();
-        lobby.players.Add(new LobbyPlayer { guid = guidStr, ip = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 10003), isMaster = true, name = "" });
+        lobby = new Lobby();
+        lobby.players.Add(new LobbyPlayer { guid = guidStr, endPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 10003), isMaster = true, name = "" });
         lobby.isMaster = true;
+        lobbyState = LobbyState.InLobby;
         BroadcastLobby();
     }
 
@@ -133,6 +197,20 @@ public class NetworkManager : MonoBehaviour
             masterGuid = guidStr, myPort = GetPort()};
         int length = lobbyMessage.ToByteArray(send_buffer);
         BroadcastMessage(send_buffer, length);
+    }
+
+    void BroadcastMessage(NetworkProtocol message)
+    {
+        IPEndPoint broadcastEndPoint = new IPEndPoint(IPAddress.Broadcast, DEFAULT_PORT);
+        IPEndPoint broadcastEndPoint2 = new IPEndPoint(IPAddress.Broadcast, DEBUG_PORT);
+        
+        using (UdpClient udpClient = new UdpClient())
+        {
+            byte[] buffer = new byte[1000];
+            int length = message.ToByteArray(buffer);
+            udpClient.Send(buffer, length, broadcastEndPoint);
+            udpClient.Send(buffer, length, broadcastEndPoint2);
+        }
     }
 
     void BroadcastMessage(byte[] buffer, int length)
@@ -183,7 +261,7 @@ public class NetworkManager : MonoBehaviour
             while (stopListening == false)
             {
                 receive_byte_array = listener.Receive(ref groupEP);
-                ThreadSafeLog(string.Format("Received a broadcast from {0}", groupEP.ToString()));
+                ThreadSafeLog(string.Format("Received a udp message from {0}", groupEP.ToString()));
                 //received_data = Encoding.UTF8.GetString(receive_byte_array, 0, receive_byte_array.Length);
                 OnNetworkMessage(receive_byte_array, groupEP);
             }
@@ -226,7 +304,7 @@ public class NetworkManager : MonoBehaviour
     void OnNetworkMessage(byte[] udpMessage, IPEndPoint remoteEndPoint)
     {
         int _appIdentifier;
-        int _messageType;
+        byte _messageType;
         string _senderGuid;
         if (!NetworkProtocol.TryParseBasicInfo(udpMessage, out _appIdentifier, out _messageType))
             return;
@@ -271,12 +349,17 @@ public class NetworkManager : MonoBehaviour
             iWantToJoin = false,
             joinStatus = 1
         };
-        SendUdpMessage(targetPlayer.ip, lobbyMessage);
+        SendUdpMessage(targetPlayer.endPoint, lobbyMessage);
     }
 
     void ProcessLobbyMessage(LobbyMessage lobbyMessage, IPEndPoint remoteEndPoint)
     {
-        if (lobby != null) // I am the lobby master
+        if (lobbyMessage.requestRoomList)
+        {
+            if (lobby != null && lobby.isMaster && lobbyState == LobbyState.InLobby)
+                BroadcastLobby();
+        }
+        else if (lobby != null && lobby.isMaster) // I am the lobby master
         {
             if (lobbyMessage.masterGuid != guidStr)
             {
@@ -289,31 +372,42 @@ public class NetworkManager : MonoBehaviour
                 if (targetPlayer == null && lobby.players.Count < MAX_PLAYER_COUNT)
                 {
                     targetPlayer = new LobbyPlayer { guid = lobbyMessage.senderGuid,
-                        ip = new IPEndPoint(remoteEndPoint.Address, lobbyMessage.myPort), isMaster = false };
+                        endPoint = new IPEndPoint(remoteEndPoint.Address, lobbyMessage.myPort), isMaster = false };
                     lobby.players.Add(targetPlayer);
                     NotifyJoinSuccess(targetPlayer);
+                    ThreadSafeLog(string.Format("player on {0} joined.", targetPlayer.endPoint));
                 }
             }
 
         }
-        else // then I'm just a guest player
+        else if (lobbyState == LobbyState.NoLobby) // then I'm just a guest player
         {
             if (lobbyMessage.iWantToJoin == false)
             {
                 var targetLobby = lobbyList.Find(item => item.master.guid == lobbyMessage.senderGuid);
                 if (targetLobby == null)
                 {
-                    lobbyList.Add(new Lobby
+
+                    var newLobby = new Lobby
                     {
                         currentCount = lobbyMessage.currentPlayerCount,
                         maxCount = lobbyMessage.maxPlayerCount,
                         isMaster = false,
-                        master = new LobbyPlayer { guid = lobbyMessage.senderGuid, ip = new IPEndPoint(remoteEndPoint.Address, lobbyMessage.myPort), isMaster = true }
-                    });
+                        master = new LobbyPlayer { guid = lobbyMessage.senderGuid, endPoint = new IPEndPoint(remoteEndPoint.Address, lobbyMessage.myPort), isMaster = true }
+                    };
+                    lobbyList.Add(newLobby);
+                    ThreadSafeLog("Found lobby on " + newLobby.master.endPoint.ToString());
                 }
                 else if (targetLobby.master.guid == lobbyMessage.senderGuid)
                 {
                     targetLobby.currentCount = lobbyMessage.currentPlayerCount;
+                    if (lobbyMessage.joinStatus == 1)
+                    {
+                        lobby = targetLobby;
+                        master = lobby.master;
+                        lobbyState = LobbyState.InLobby;
+                        ThreadSafeLog("Successfully joined lobby: " + lobby.master.endPoint.ToString());
+                    }
                 }
             }
         }

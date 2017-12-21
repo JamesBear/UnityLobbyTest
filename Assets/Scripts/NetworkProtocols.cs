@@ -23,7 +23,7 @@ public abstract class NetworkProtocol
     public string senderGuid;
     public int myPort;
 
-    public static bool TryParseBasicInfo(byte[] udpMessage, out int _appIndentifier, out int _messageType)
+    public static bool TryParseBasicInfo(byte[] udpMessage, out int _appIndentifier, out byte _messageType)
     {
 
         _appIndentifier = 0;
@@ -92,7 +92,10 @@ public abstract class NetworkProtocol
     {
         int stringBytes = 0;
         startIndex = PullItem(buffer, ref stringBytes, startIndex);
-        value = System.Text.Encoding.UTF8.GetString(buffer, startIndex, stringBytes);
+        if (stringBytes == 0)
+            value = "";
+        else 
+            value = System.Text.Encoding.UTF8.GetString(buffer, startIndex, stringBytes);
 
         startIndex += stringBytes;
         return startIndex;
@@ -119,12 +122,20 @@ public abstract class NetworkProtocol
 
     protected static int PushItem(byte[] buffer, string value, int startIndex)
     {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
+        if (string.IsNullOrEmpty(value))
+        {
+            startIndex = PushItem(buffer, (int)0, startIndex);
+            return startIndex;
+        }
+        else
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(value);
 
-        startIndex = PushItem(buffer, bytes.Length, startIndex);
+            startIndex = PushItem(buffer, bytes.Length, startIndex);
 
-        System.Array.Copy(bytes, 0, buffer, startIndex, bytes.Length);
-        return startIndex + bytes.Length;
+            System.Array.Copy(bytes, 0, buffer, startIndex, bytes.Length);
+            return startIndex + bytes.Length;
+        }
     }
 
     public virtual int ToByteArray(byte[] buffer)
@@ -156,17 +167,18 @@ public class LobbyMessage : NetworkProtocol
     public int currentPlayerCount;
     public bool iWantToJoin;
     public int joinStatus; // 0: broadcast, 1: successfully joined, 2: failed to join
+    public bool requestRoomList;
 
     public LobbyMessage()
         : base()
     {
-
+        messageType = (byte)NetworkMessageType.LobbyMessage;
     }
 
     public LobbyMessage(byte[] udpMessage)
         : base(udpMessage)
     {
-
+        messageType = (byte)NetworkMessageType.LobbyMessage;
     }
 
     public override int Parse(byte[] udpMessage)
@@ -181,6 +193,7 @@ public class LobbyMessage : NetworkProtocol
         index = PullItem(udpMessage, ref currentPlayerCount, index);
         index = PullItem(udpMessage, ref iWantToJoin, index);
         index = PullItem(udpMessage, ref joinStatus, index);
+        index = PullItem(udpMessage, ref requestRoomList, index);
 
         return index;
     }
@@ -194,6 +207,7 @@ public class LobbyMessage : NetworkProtocol
         index = PushItem(buffer, currentPlayerCount, index);
         index = PushItem(buffer, iWantToJoin, index);
         index = PushItem(buffer, joinStatus, index);
+        index = PushItem(buffer, requestRoomList, index);
 
         return index;
     }

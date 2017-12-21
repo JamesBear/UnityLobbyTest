@@ -135,8 +135,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 83bad925b1c547e41828c392f7c65a69, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  useDebugPort: 0
   btnTestSend: 0
-  btnTestStartListening: 0
+  btnTestStartListening: 1
+  btnTestCreateLobby: 0
+  btnTestJoinRandomLobby: 0
+  btnRequestRoomList: 0
 --- !u!4 &809597708
 Transform:
   m_ObjectHideFlags: 0
